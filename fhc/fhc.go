@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/zeebo/xxh3"
 )
@@ -105,6 +106,8 @@ type nodeResult struct {
 	directoryNode bool
 }
 
+type snapshotAttempt func(string) (nodeResult, bool, error)
+
 func hashPath(path string) (nodeResult, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -125,8 +128,12 @@ func hashPath(path string) (nodeResult, error) {
 }
 
 func hashRegularFile(path string) (nodeResult, error) {
+	return retrySnapshot(path, hashRegularFileAttempt, &FileChangedError{Path: path})
+}
+
+func retrySnapshot(path string, attempt snapshotAttempt, changedError error) (nodeResult, error) {
 	for range maxSnapshotAttempts {
-		result, stable, err := hashRegularFileAttempt(path)
+		result, stable, err := attempt(path)
 		if err != nil {
 			return nodeResult{}, err
 		}
@@ -135,7 +142,7 @@ func hashRegularFile(path string) (nodeResult, error) {
 		}
 	}
 
-	return nodeResult{}, &FileChangedError{Path: path}
+	return nodeResult{}, changedError
 }
 
 // hashRegularFileAttempt implements one complete stable-snapshot state transition.
@@ -213,6 +220,20 @@ func storeFileCache(
 	contentHash uint64,
 	hash uint64,
 ) (nodeResult, bool, error) {
+	return storeFileCacheWith(file, path, before, after, contentHash, hash, writeMetadata)
+}
+
+type metadataWriter func(*os.File, string, []byte, time.Time) error
+
+func storeFileCacheWith(
+	file *os.File,
+	path string,
+	before os.FileInfo,
+	after os.FileInfo,
+	contentHash uint64,
+	hash uint64,
+	write metadataWriter,
+) (nodeResult, bool, error) {
 	newRecord := cacheRecord{
 		recordType:  recordTypeFile,
 		contentHash: contentHash,
@@ -220,7 +241,7 @@ func storeFileCache(
 		mtimeSec:    after.ModTime().Unix(),
 		mtimeNsec:   uint32(after.ModTime().Nanosecond()), //nolint:gosec // Nanoseconds fit uint32.
 	}
-	writeErr := writeMetadata(file, path, encodeRecord(newRecord), after.ModTime())
+	writeErr := write(file, path, encodeRecord(newRecord), after.ModTime())
 	finalInfo, statErr := file.Stat()
 	if statErr != nil {
 		return nodeResult{}, false, fmt.Errorf("verify open file: %w", statErr)
@@ -239,17 +260,7 @@ func storeFileCache(
 }
 
 func hashDirectory(path string) (nodeResult, error) {
-	for range maxSnapshotAttempts {
-		result, stable, err := hashDirectoryAttempt(path)
-		if err != nil {
-			return nodeResult{}, err
-		}
-		if stable {
-			return result, nil
-		}
-	}
-
-	return nodeResult{}, &DirectoryChangedError{Path: path}
+	return retrySnapshot(path, hashDirectoryAttempt, &DirectoryChangedError{Path: path})
 }
 
 // hashDirectoryAttempt implements one complete recursive snapshot state transition.

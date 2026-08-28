@@ -111,6 +111,20 @@ func TestGetFileHashWithCacheDirectoryChanges(t *testing.T) {
 	assert.NotEqual(t, second.Hash, changed.Hash)
 }
 
+func TestGetFileHashWithCacheDirectoryHashVector(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	require.NoError(t, os.Mkdir(nested, 0o700))
+	writeFixedFile(t, nested, "item.txt", "one")
+	require.NoError(t, os.Mkdir(filepath.Join(root, "empty"), 0o700))
+
+	result, err := GetFileHashWithCache(root)
+	require.NoError(t, err)
+	assert.Equal(t, "800b294843734a8f", result.Hash)
+}
+
 func TestGetFileHashWithCacheFileHashVector(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +150,61 @@ func TestGetFileHashWithCacheMtimeChangesHash(t *testing.T) {
 	second, err := GetFileHashWithCache(path)
 	require.NoError(t, err)
 	assert.NotEqual(t, first.Hash, second.Hash)
+}
+
+func TestGetFileHashWithCacheMoveKeepsFileHashAndChangesParents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	firstParent := filepath.Join(root, "first")
+	secondParent := filepath.Join(root, "second")
+	require.NoError(t, os.Mkdir(firstParent, 0o700))
+	require.NoError(t, os.Mkdir(secondParent, 0o700))
+	firstPath := filepath.Join(firstParent, "item.txt")
+	secondPath := filepath.Join(secondParent, "item.txt")
+	writeFixedFile(t, firstParent, "item.txt", "content")
+
+	fileBefore, err := GetFileHashWithCache(firstPath)
+	require.NoError(t, err)
+	firstBefore, err := GetFileHashWithCache(firstParent)
+	require.NoError(t, err)
+	secondBefore, err := GetFileHashWithCache(secondParent)
+	require.NoError(t, err)
+
+	require.NoError(t, os.Rename(firstPath, secondPath))
+	fileAfter, err := GetFileHashWithCache(secondPath)
+	require.NoError(t, err)
+	firstAfter, err := GetFileHashWithCache(firstParent)
+	require.NoError(t, err)
+	secondAfter, err := GetFileHashWithCache(secondParent)
+	require.NoError(t, err)
+
+	assert.Equal(t, fileBefore.Hash, fileAfter.Hash)
+	assert.NotEqual(t, firstBefore.Hash, firstAfter.Hash)
+	assert.NotEqual(t, secondBefore.Hash, secondAfter.Hash)
+}
+
+func TestGetFileHashWithCacheDirectoryRenameChangesParentOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	beforePath := filepath.Join(root, "before")
+	afterPath := filepath.Join(root, "after")
+	require.NoError(t, os.Mkdir(beforePath, 0o700))
+	writeFixedFile(t, beforePath, "item.txt", "content")
+
+	childBefore, err := GetFileHashWithCache(beforePath)
+	require.NoError(t, err)
+	parentBefore, err := GetFileHashWithCache(root)
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(beforePath, afterPath))
+
+	childAfter, err := GetFileHashWithCache(afterPath)
+	require.NoError(t, err)
+	parentAfter, err := GetFileHashWithCache(root)
+	require.NoError(t, err)
+	assert.Equal(t, childBefore.Hash, childAfter.Hash)
+	assert.NotEqual(t, parentBefore.Hash, parentAfter.Hash)
 }
 
 func TestGetFileHashWithCacheDirectoryOrdering(t *testing.T) {
@@ -351,6 +420,44 @@ func TestChangeErrorsSupportErrorsAs(t *testing.T) {
 	require.ErrorAs(t, dirErr, &gotDir)
 	require.ErrorIs(t, fileErr, ErrFileChanged)
 	assert.ErrorIs(t, dirErr, ErrDirectoryChanged)
+}
+
+func TestRetrySnapshotReturnsTypedErrorAfterThreeAttempts(t *testing.T) {
+	t.Parallel()
+
+	attemptCount := 0
+	attempt := func(_ string) (nodeResult, bool, error) {
+		attemptCount++
+
+		return nodeResult{}, false, nil
+	}
+	wantError := &FileChangedError{Path: "changing"}
+	result, err := retrySnapshot("changing", attempt, wantError)
+	require.ErrorIs(t, err, ErrFileChanged)
+	assert.Equal(t, nodeResult{}, result)
+	assert.Equal(t, maxSnapshotAttempts, attemptCount)
+}
+
+func TestStoreFileCacheReturnsUncachedOnMetadataFailure(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "uncached.txt")
+	require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
+	setFixedTime(t, path)
+	file, err := openObject(path)
+	require.NoError(t, err)
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	require.NoError(t, err)
+
+	write := func(_ *os.File, _ string, _ []byte, _ time.Time) error {
+		return assert.AnError
+	}
+	result, stable, err := storeFileCacheWith(file, path, info, info, 1, 2, write)
+	require.NoError(t, err)
+	assert.True(t, stable)
+	assert.Equal(t, StatusUncached, result.status)
+	require.ErrorIs(t, result.cacheError, assert.AnError)
 }
 
 func replaceByte(source []byte, index int, value byte) []byte {
