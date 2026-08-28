@@ -1,0 +1,4 @@
+.git
+.github
+coverage.out
+go-carpet-coverage-out*

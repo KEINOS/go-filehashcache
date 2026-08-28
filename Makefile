@@ -12,7 +12,7 @@ clean:
 
 .PHONY: test
 test:
-	@go test -race ./...
+	@go test -race -cover ./...
 
 .PHONY: test_example
 test_example:
@@ -22,8 +22,11 @@ test_example:
 
 .PHONY: lint
 lint:
-	@golangci-lint run --fix ./... $(EXAMPLE_DIRS)
-	@markdownlint-cli2 "**/*.md" --fix
+	@golangci-lint run ./...
+	@set -e; for dir in $(EXAMPLE_DIRS); do \
+		(cd "$$dir" && golangci-lint run --config "$(CURDIR)/.golangci.yml" ./...); \
+	done
+	@markdownlint-cli2 "**/*.md"
 
 .PHONY: fuzz
 fuzz:
