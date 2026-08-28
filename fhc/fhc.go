@@ -203,13 +203,22 @@ func loadFileContentHash(file *os.File, path string, info os.FileInfo) (uint64, 
 	if err != nil {
 		return 0, false, fmt.Errorf("seek file: %w", err)
 	}
-	hasher := xxh3.New()
-	_, err = io.Copy(hasher, file)
+	contentHash, err := calculateContentHash(file)
 	if err != nil {
 		return 0, false, fmt.Errorf("hash file content: %w", err)
 	}
 
-	return hasher.Sum64(), false, nil
+	return contentHash, false, nil
+}
+
+func calculateContentHash(reader io.Reader) (uint64, error) {
+	hasher := xxh3.New()
+	_, err := io.Copy(hasher, reader)
+	if err != nil {
+		return 0, fmt.Errorf("read content: %w", err)
+	}
+
+	return hasher.Sum64(), nil
 }
 
 func storeFileCache(

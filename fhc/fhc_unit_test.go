@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -135,6 +136,14 @@ func TestGetFileHashWithCacheFileHashVector(t *testing.T) {
 	result, err := GetFileHashWithCache(path)
 	require.NoError(t, err)
 	assert.Equal(t, "a46cee5a97ef766f", result.Hash)
+}
+
+func TestContentHashVector(t *testing.T) {
+	t.Parallel()
+
+	hash, err := calculateContentHash(strings.NewReader("hello\n"))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x99fc819aaba2462a), hash)
 }
 
 func TestGetFileHashWithCacheMtimeChangesHash(t *testing.T) {
@@ -434,6 +443,13 @@ func TestRetrySnapshotReturnsTypedErrorAfterThreeAttempts(t *testing.T) {
 	wantError := &FileChangedError{Path: "changing"}
 	result, err := retrySnapshot("changing", attempt, wantError)
 	require.ErrorIs(t, err, ErrFileChanged)
+	assert.Equal(t, nodeResult{}, result)
+	assert.Equal(t, maxSnapshotAttempts, attemptCount)
+
+	attemptCount = 0
+	directoryError := &DirectoryChangedError{Path: "changing"}
+	result, err = retrySnapshot("changing", attempt, directoryError)
+	require.ErrorIs(t, err, ErrDirectoryChanged)
 	assert.Equal(t, nodeResult{}, result)
 	assert.Equal(t, maxSnapshotAttempts, attemptCount)
 }
