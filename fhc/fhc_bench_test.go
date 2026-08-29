@@ -5,7 +5,10 @@ import (
 )
 
 func BenchmarkDecodeRecord(b *testing.B) {
-	data := encodeRecord(cacheRecord{recordType: recordTypeFile})
+	rec := new(cacheRecord)
+	rec.recordType = recordTypeFile
+
+	data := encodeRecord(*rec)
 
 	for b.Loop() {
 		_, _ = decodeRecord(data)
@@ -13,7 +16,10 @@ func BenchmarkDecodeRecord(b *testing.B) {
 }
 
 func FuzzFHC(f *testing.F) {
-	valid := encodeRecord(cacheRecord{recordType: recordTypeFile})
+	rec := new(cacheRecord)
+	rec.recordType = recordTypeFile
+
+	valid := encodeRecord(*rec)
 	f.Add(valid)
 	f.Add([]byte{})
 	f.Add(valid[:8])

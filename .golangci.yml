@@ -10,7 +10,6 @@ linters:
     - wsl
     - gomodguard
     - exhaustruct
-    - exhaustruct_v5
     # Disabled due to project policy
     - gomoddirectives
     - testpackage

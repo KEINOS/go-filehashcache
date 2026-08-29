@@ -16,26 +16,28 @@ import (
 func TestCacheRecordRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	want := cacheRecord{
-		recordType:  recordTypeFile,
-		contentHash: 0x0123456789abcdef,
-		size:        42,
-		mtimeSec:    -123,
-		mtimeNsec:   999_999_999,
-	}
+	want := new(cacheRecord)
+	want.recordType = recordTypeFile
+	want.contentHash = 0x0123456789abcdef
+	want.size = 42
+	want.mtimeSec = -123
+	want.mtimeNsec = 999_999_999
 
-	encoded := encodeRecord(want)
+	encoded := encodeRecord(*want)
 	require.Len(t, encoded, cacheRecordSize)
 
 	got, err := decodeRecord(encoded)
 	require.NoError(t, err)
-	assert.Equal(t, want, got)
+	assert.Equal(t, *want, got)
 }
 
 func TestDecodeRecordRejectsMalformedValues(t *testing.T) {
 	t.Parallel()
 
-	valid := encodeRecord(cacheRecord{recordType: recordTypeDirectory})
+	rec := new(cacheRecord)
+	rec.recordType = recordTypeDirectory
+
+	valid := encodeRecord(*rec)
 	tests := map[string][]byte{
 		"empty":         nil,
 		"truncated":     append([]byte(nil), valid[:len(valid)-1]...),
@@ -313,9 +315,11 @@ func TestGetFileHashWithCacheRejectsADSPathOnWindows(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "base.txt")
 	require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
-	result, err := GetFileHashWithCache(path + ":named")
+
+	expect := Result{} //nolint:exhaustruct_v5
+	actual, err := GetFileHashWithCache(path + ":named")
 	require.Error(t, err)
-	assert.Equal(t, Result{}, result)
+	assert.Equal(t, expect, actual)
 }
 
 func TestGetFileHashWithCacheEmptyDirectoryIsDeterministic(t *testing.T) {
@@ -343,9 +347,11 @@ func TestGetFileHashWithCacheRejectsSymlinkWithZeroResult(t *testing.T) {
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 
-	result, err := GetFileHashWithCache(link)
+	expect := Result{} //nolint:exhaustruct_v5
+	actual, err := GetFileHashWithCache(link)
 	require.Error(t, err)
-	assert.Equal(t, Result{}, result)
+
+	assert.Equal(t, expect, actual)
 }
 
 func TestGetFileHashWithCacheConcurrentCalls(t *testing.T) {
@@ -465,23 +471,26 @@ func TestChangeErrorsSupportErrorsAs(t *testing.T) {
 func TestRetrySnapshotReturnsTypedErrorAfterThreeAttempts(t *testing.T) {
 	t.Parallel()
 
+	//nolint:exhaustruct_v5
+	emptyNodeResult := nodeResult{}
+
 	attemptCount := 0
 	attempt := func(_ string) (nodeResult, bool, error) {
 		attemptCount++
 
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 	wantError := &FileChangedError{Path: "changing"}
 	result, err := retrySnapshot("changing", attempt, wantError)
 	require.ErrorIs(t, err, ErrFileChanged)
-	assert.Equal(t, nodeResult{}, result)
+	assert.Equal(t, emptyNodeResult, result)
 	assert.Equal(t, maxSnapshotAttempts, attemptCount)
 
 	attemptCount = 0
 	directoryError := &DirectoryChangedError{Path: "changing"}
 	result, err = retrySnapshot("changing", attempt, directoryError)
 	require.ErrorIs(t, err, ErrDirectoryChanged)
-	assert.Equal(t, nodeResult{}, result)
+	assert.Equal(t, emptyNodeResult, result)
 	assert.Equal(t, maxSnapshotAttempts, attemptCount)
 }
 

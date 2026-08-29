@@ -19,11 +19,11 @@ var errInvalidCacheRecord = errors.New("invalid cache record")
 type cacheRecord struct {
 	contentHash        uint64
 	size               uint64
-	mtimeSec           int64
 	directoryHash      uint64
-	recursiveFileCount uint64
 	directEntryCount   uint64
+	recursiveFileCount uint64
 	mtimeNsec          uint32
+	mtimeSec           int64
 	recordType         byte
 }
 
@@ -83,19 +83,19 @@ func validRecordEnvelope(data []byte) bool {
 }
 
 func decodeFileRecord(data []byte) (cacheRecord, error) {
-	record := cacheRecord{
-		recordType:  recordTypeFile,
-		contentHash: binary.BigEndian.Uint64(data[8:16]),
-		size:        binary.BigEndian.Uint64(data[16:24]),
-		// The format stores signed seconds as a two's-complement uint64.
-		mtimeSec:  int64(binary.BigEndian.Uint64(data[24:32])), //nolint:gosec
-		mtimeNsec: binary.BigEndian.Uint32(data[32:36]),
-	}
-	if record.mtimeNsec >= nanosecondsPerSecond {
+	rec := new(cacheRecord)
+	rec.recordType = recordTypeFile
+	rec.contentHash = binary.BigEndian.Uint64(data[8:16])
+	rec.size = binary.BigEndian.Uint64(data[16:24])
+	// The format stores signed seconds as a two's-complement uint64.
+	rec.mtimeSec = int64(binary.BigEndian.Uint64(data[24:32])) //nolint:gosec
+	rec.mtimeNsec = binary.BigEndian.Uint32(data[32:36])
+
+	if rec.mtimeNsec >= nanosecondsPerSecond {
 		return cacheRecord{}, errInvalidCacheRecord
 	}
 
-	return record, nil
+	return *rec, nil
 }
 
 func decodeDirectoryRecord(data []byte) (cacheRecord, error) {
@@ -103,10 +103,11 @@ func decodeDirectoryRecord(data []byte) (cacheRecord, error) {
 		return cacheRecord{}, errInvalidCacheRecord
 	}
 
-	return cacheRecord{
-		recordType:         recordTypeDirectory,
-		directoryHash:      binary.BigEndian.Uint64(data[8:16]),
-		recursiveFileCount: binary.BigEndian.Uint64(data[16:24]),
-		directEntryCount:   binary.BigEndian.Uint64(data[24:32]),
-	}, nil
+	rec := new(cacheRecord)
+	rec.recordType = recordTypeDirectory
+	rec.directoryHash = binary.BigEndian.Uint64(data[8:16])
+	rec.recursiveFileCount = binary.BigEndian.Uint64(data[16:24])
+	rec.directEntryCount = binary.BigEndian.Uint64(data[24:32])
+
+	return *rec, nil
 }

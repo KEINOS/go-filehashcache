@@ -150,46 +150,55 @@ func retrySnapshot(path string, attempt snapshotAttempt, changedError error) (no
 
 // hashRegularFileAttempt implements one complete stable-snapshot state transition.
 func hashRegularFileAttempt(path string) (nodeResult, bool, error) { //nolint:cyclop
+	//nolint:exhaustruct_v5
+	emptyNodeResult := nodeResult{}
+
 	file, err := openObject(path)
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("open file: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("open file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 
 	before, err := file.Stat()
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("inspect open file: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("inspect open file: %w", err)
 	}
 
 	if !before.Mode().IsRegular() {
-		return nodeResult{}, false, fmt.Errorf("%w: %s", errNotRegularFile, path)
+		return emptyNodeResult, false, fmt.Errorf("%w: %s", errNotRegularFile, path)
 	}
 
 	if !pathIdentifiesOpenObject(path, before) {
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 
 	contentHash, cacheHit, err := loadFileContentHash(file, path, before)
 	if err != nil {
-		return nodeResult{}, false, err
+		return emptyNodeResult, false, err
 	}
 
 	after, err := file.Stat()
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("reinspect open file: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("reinspect open file: %w", err)
 	}
 
 	if !sameFingerprint(before, after) || !pathIdentifiesOpenObject(path, before) {
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 
 	hash, err := deriveFileHash(contentHash, after, filepath.Base(path))
 	if err != nil {
-		return nodeResult{}, false, err
+		return emptyNodeResult, false, err
 	}
 
 	if cacheHit {
-		return nodeResult{hash: hash, fileCount: 1, status: StatusHit}, true, nil
+		return nodeResult{
+			cacheError:    nil,
+			status:        StatusHit,
+			hash:          hash,
+			fileCount:     1,
+			directoryNode: false,
+		}, true, nil
 	}
 
 	return storeFileCache(file, path, before, after, contentHash, hash)
@@ -253,14 +262,14 @@ func storeFileCacheWith(
 	hash uint64,
 	write metadataWriter,
 ) (nodeResult, bool, error) {
-	newRecord := cacheRecord{
-		recordType:  recordTypeFile,
-		contentHash: contentHash,
-		size:        uint64(after.Size()), //nolint:gosec // A regular file size is nonnegative.
-		mtimeSec:    after.ModTime().Unix(),
-		mtimeNsec:   uint32(after.ModTime().Nanosecond()), //nolint:gosec // Nanoseconds fit uint32.
-	}
-	writeErr := write(file, path, encodeRecord(newRecord), after.ModTime())
+	newRecord := new(cacheRecord)
+	newRecord.contentHash = contentHash
+	newRecord.size = uint64(after.Size()) //nolint:gosec // A regular file size is nonnegative.
+	newRecord.mtimeSec = after.ModTime().Unix()
+	newRecord.mtimeNsec = uint32(after.ModTime().Nanosecond()) //nolint:gosec // Nanoseconds fit uint32.
+	newRecord.recordType = recordTypeFile
+
+	writeErr := write(file, path, encodeRecord(*newRecord), after.ModTime())
 
 	finalInfo, statErr := file.Stat()
 	if statErr != nil {
@@ -268,17 +277,27 @@ func storeFileCacheWith(
 	}
 
 	if !sameFingerprint(after, finalInfo) || !pathIdentifiesOpenObject(path, before) {
+		//nolint:exhaustruct_v5
 		return nodeResult{}, false, nil
 	}
 
 	if writeErr != nil {
 		return nodeResult{
-			hash: hash, fileCount: 1, status: StatusUncached,
-			cacheError: fmt.Errorf("store file cache: %w", writeErr),
+			cacheError:    fmt.Errorf("store file cache: %w", writeErr),
+			status:        StatusUncached,
+			hash:          hash,
+			fileCount:     1,
+			directoryNode: false,
 		}, true, nil
 	}
 
-	return nodeResult{hash: hash, fileCount: 1, status: StatusMiss}, true, nil
+	return nodeResult{
+		cacheError:    nil,
+		hash:          hash,
+		fileCount:     1,
+		status:        StatusMiss,
+		directoryNode: false,
+	}, true, nil
 }
 
 func hashDirectory(path string) (nodeResult, error) {
@@ -287,23 +306,26 @@ func hashDirectory(path string) (nodeResult, error) {
 
 // hashDirectoryAttempt implements one complete recursive snapshot state transition.
 func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cyclop,funlen
+	//nolint:exhaustruct_v5
+	emptyNodeResult := nodeResult{}
+
 	directory, err := openObject(path)
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("open directory: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("open directory: %w", err)
 	}
 	defer func() { _ = directory.Close() }()
 
 	before, err := directory.Stat()
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("inspect open directory: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("inspect open directory: %w", err)
 	}
 
 	if !before.IsDir() {
-		return nodeResult{}, false, fmt.Errorf("%w: %s", errNotDirectory, path)
+		return emptyNodeResult, false, fmt.Errorf("%w: %s", errNotDirectory, path)
 	}
 
 	if !pathIdentifiesOpenObject(path, before) {
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 
 	recordData, readErr := readMetadata(directory, path)
@@ -311,12 +333,12 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 
 	entries, err := directory.ReadDir(-1)
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("read directory: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("read directory: %w", err)
 	}
 
 	children, err := collectDirectoryChildren(path, entries)
 	if err != nil {
-		return nodeResult{}, false, err
+		return emptyNodeResult, false, err
 	}
 
 	slices.Sort(children.hashes)
@@ -324,36 +346,40 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 
 	after, err := directory.Stat()
 	if err != nil {
-		return nodeResult{}, false, fmt.Errorf("reinspect open directory: %w", err)
+		return emptyNodeResult, false, fmt.Errorf("reinspect open directory: %w", err)
 	}
 
 	if !before.ModTime().Equal(after.ModTime()) ||
 		!os.SameFile(before, after) ||
 		!pathIdentifiesOpenObject(path, before) {
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 
-	recordMatches := readErr == nil && decodeErr == nil &&
+	recordMatches := readErr == nil &&
+		decodeErr == nil &&
 		cachedRecord.recordType == recordTypeDirectory &&
 		cachedRecord.directoryHash == directoryHash &&
 		cachedRecord.recursiveFileCount == children.fileCount &&
 		cachedRecord.directEntryCount == uint64(len(entries))
+
 	if recordMatches && children.allHit && len(children.cacheErrors) == 0 {
 		return nodeResult{
-			hash: directoryHash, fileCount: children.fileCount,
-			status: StatusHit, directoryNode: true,
+			cacheError:    nil,
+			hash:          directoryHash,
+			fileCount:     children.fileCount,
+			status:        StatusHit,
+			directoryNode: true,
 		}, true, nil
 	}
 
 	if !recordMatches {
-		newRecord := cacheRecord{
-			recordType:         recordTypeDirectory,
-			directoryHash:      directoryHash,
-			recursiveFileCount: children.fileCount,
-			directEntryCount:   uint64(len(entries)),
-		}
+		newRecord := new(cacheRecord)
+		newRecord.recordType = recordTypeDirectory
+		newRecord.directoryHash = directoryHash
+		newRecord.recursiveFileCount = children.fileCount
+		newRecord.directEntryCount = uint64(len(entries))
 
-		writeErr := writeMetadata(directory, path, encodeRecord(newRecord), after.ModTime())
+		writeErr := writeMetadata(directory, path, encodeRecord(*newRecord), after.ModTime())
 		if writeErr != nil {
 			children.cacheErrors = append(children.cacheErrors, fmt.Errorf("store directory cache: %w", writeErr))
 		}
@@ -361,13 +387,13 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 
 	finalInfo, statErr := directory.Stat()
 	if statErr != nil {
-		return nodeResult{}, false, fmt.Errorf("verify open directory: %w", statErr)
+		return emptyNodeResult, false, fmt.Errorf("verify open directory: %w", statErr)
 	}
 
 	if !after.ModTime().Equal(finalInfo.ModTime()) ||
 		!os.SameFile(after, finalInfo) ||
 		!pathIdentifiesOpenObject(path, before) {
-		return nodeResult{}, false, nil
+		return emptyNodeResult, false, nil
 	}
 
 	status := StatusMiss
@@ -376,8 +402,11 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 	}
 
 	return nodeResult{
-		hash: directoryHash, fileCount: children.fileCount, status: status,
-		cacheError: errors.Join(children.cacheErrors...), directoryNode: true,
+		cacheError:    errors.Join(children.cacheErrors...),
+		status:        status,
+		hash:          directoryHash,
+		fileCount:     children.fileCount,
+		directoryNode: true,
 	}, true, nil
 }
 
@@ -389,7 +418,13 @@ type directoryChildren struct {
 }
 
 func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChildren, error) {
-	result := directoryChildren{hashes: make([]uint64, 0, len(entries)), allHit: true}
+	result := new(directoryChildren)
+	result.hashes = make([]uint64, 0, len(entries))
+	result.allHit = true
+
+	//nolint:exhaustruct_v5
+	var emptyDirChild = directoryChildren{}
+
 	for _, entry := range entries {
 		childPath := filepath.Join(path, entry.Name())
 		if entry.Type()&os.ModeSymlink != 0 {
@@ -398,7 +433,7 @@ func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChil
 
 		child, err := hashPath(childPath)
 		if err != nil {
-			return directoryChildren{}, err
+			return emptyDirChild, err
 		}
 
 		result.fileCount += child.fileCount
@@ -412,14 +447,14 @@ func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChil
 		if child.directoryNode {
 			childHash, err = deriveDirectoryNodeHash(entry.Name(), child.hash, child.fileCount)
 			if err != nil {
-				return directoryChildren{}, err
+				return emptyDirChild, err
 			}
 		}
 
 		result.hashes = append(result.hashes, childHash)
 	}
 
-	return result, nil
+	return *result, nil
 }
 
 func deriveFileHash(contentHash uint64, info os.FileInfo, name string) (uint64, error) {
