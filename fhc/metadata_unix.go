@@ -27,11 +27,14 @@ func readMetadata(file *os.File, _ string) ([]byte, error) {
 	if isLinux {
 		name = "user." + name
 	}
+
 	size, err := unix.Fgetxattr(int(file.Fd()), name, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get metadata size: %w", err)
 	}
+
 	data := make([]byte, size)
+
 	size, err = unix.Fgetxattr(int(file.Fd()), name, data)
 	if err != nil {
 		return nil, fmt.Errorf("get metadata value: %w", err)
@@ -45,14 +48,17 @@ func writeMetadata(file *os.File, path string, data []byte, _ time.Time) error {
 	if isLinux {
 		name = "user." + name
 	}
+
 	err := unix.Fsetxattr(int(file.Fd()), name, data, 0)
 	if err != nil {
 		return fmt.Errorf("set metadata value: %w", err)
 	}
+
 	stored, err := readMetadata(file, path)
 	if err != nil {
 		return err
 	}
+
 	if !bytes.Equal(stored, data) {
 		return errMetadataVerification
 	}

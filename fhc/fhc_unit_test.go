@@ -50,6 +50,7 @@ func TestDecodeRecordRejectsMalformedValues(t *testing.T) {
 	for name, value := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+
 			_, err := decodeRecord(value)
 			assert.Error(t, err)
 		})
@@ -71,6 +72,7 @@ func TestGetFileHashWithCacheStableFileAndRename(t *testing.T) {
 	second, err := GetFileHashWithCache(path)
 	require.NoError(t, err)
 	assert.Equal(t, first.Hash, second.Hash)
+
 	if first.Status != StatusUncached {
 		assert.Equal(t, StatusMiss, first.Status)
 		assert.Equal(t, StatusHit, second.Status)
@@ -81,6 +83,7 @@ func TestGetFileHashWithCacheStableFileAndRename(t *testing.T) {
 	third, err := GetFileHashWithCache(renamed)
 	require.NoError(t, err)
 	assert.NotEqual(t, second.Hash, third.Hash)
+
 	if third.Status != StatusUncached {
 		assert.Equal(t, StatusHit, third.Status)
 	}
@@ -101,12 +104,14 @@ func TestGetFileHashWithCacheDirectoryChanges(t *testing.T) {
 	second, err := GetFileHashWithCache(root)
 	require.NoError(t, err)
 	assert.Equal(t, first.Hash, second.Hash)
+
 	if first.Status != StatusUncached {
 		assert.Equal(t, StatusHit, second.Status)
 	}
 
 	require.NoError(t, os.WriteFile(filePath, []byte("two"), 0o600))
 	setFixedTimeAt(t, filePath, time.Unix(1_700_000_001, 123_456_700))
+
 	changed, err := GetFileHashWithCache(root)
 	require.NoError(t, err)
 	assert.NotEqual(t, second.Hash, changed.Hash)
@@ -167,10 +172,13 @@ func TestGetFileHashWithCacheMoveKeepsFileHashAndChangesParents(t *testing.T) {
 	root := t.TempDir()
 	firstParent := filepath.Join(root, "first")
 	secondParent := filepath.Join(root, "second")
+
 	require.NoError(t, os.Mkdir(firstParent, 0o700))
 	require.NoError(t, os.Mkdir(secondParent, 0o700))
+
 	firstPath := filepath.Join(firstParent, "item.txt")
 	secondPath := filepath.Join(secondParent, "item.txt")
+
 	writeFixedFile(t, firstParent, "item.txt", "content")
 
 	fileBefore, err := GetFileHashWithCache(firstPath)
@@ -199,6 +207,7 @@ func TestGetFileHashWithCacheDirectoryRenameChangesParentOnly(t *testing.T) {
 	root := t.TempDir()
 	beforePath := filepath.Join(root, "before")
 	afterPath := filepath.Join(root, "after")
+
 	require.NoError(t, os.Mkdir(beforePath, 0o700))
 	writeFixedFile(t, beforePath, "item.txt", "content")
 
@@ -256,6 +265,7 @@ func TestGetFileHashWithCacheRecoversFromMalformedMetadata(t *testing.T) {
 	setFixedTime(t, path)
 	first, err := GetFileHashWithCache(path)
 	require.NoError(t, err)
+
 	if first.Status == StatusUncached {
 		t.Skipf("metadata storage is unavailable: %v", first.CacheError)
 	}
@@ -284,9 +294,11 @@ func TestGetFileHashWithCacheRestoresMtime(t *testing.T) {
 
 	result, err := GetFileHashWithCache(path)
 	require.NoError(t, err)
+
 	if result.Status == StatusUncached {
 		t.Skipf("metadata storage is unavailable: %v", result.CacheError)
 	}
+
 	got, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.Equal(t, want.ModTime(), got.ModTime())
@@ -294,6 +306,7 @@ func TestGetFileHashWithCacheRestoresMtime(t *testing.T) {
 
 func TestGetFileHashWithCacheRejectsADSPathOnWindows(t *testing.T) {
 	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows-only behavior")
 	}
@@ -322,6 +335,7 @@ func TestGetFileHashWithCacheRejectsSymlinkWithZeroResult(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
 	link := filepath.Join(dir, "link")
+
 	require.NoError(t, os.WriteFile(target, []byte("data"), 0o600))
 
 	err := os.Symlink(target, link)
@@ -342,16 +356,20 @@ func TestGetFileHashWithCacheConcurrentCalls(t *testing.T) {
 	setFixedTime(t, path)
 
 	const callCount = 8
+
 	hashes := make(chan string, callCount)
 	errorsFound := make(chan error, callCount)
+
 	var waitGroup sync.WaitGroup
 	for range callCount {
 		waitGroup.Go(func() {
 			result, err := GetFileHashWithCache(path)
 			errorsFound <- err
+
 			hashes <- result.Hash
 		})
 	}
+
 	waitGroup.Wait()
 	close(errorsFound)
 	close(hashes)
@@ -359,11 +377,13 @@ func TestGetFileHashWithCacheConcurrentCalls(t *testing.T) {
 	for err := range errorsFound {
 		require.NoError(t, err)
 	}
+
 	var first string
 	for hash := range hashes {
 		if first == "" {
 			first = hash
 		}
+
 		assert.Equal(t, first, hash)
 	}
 }
@@ -396,6 +416,7 @@ func TestGetFileHashWithCacheCountsHardLinkEntries(t *testing.T) {
 	require.NoError(t, os.WriteFile(original, []byte("shared"), 0o600))
 
 	setFixedTime(t, original)
+
 	oneEntry, err := GetFileHashWithCache(root)
 	require.NoError(t, err)
 
@@ -429,8 +450,12 @@ func TestChangeErrorsSupportErrorsAs(t *testing.T) {
 
 	fileErr := &FileChangedError{Path: "file"}
 	dirErr := &DirectoryChangedError{Path: "dir"}
-	var gotFile *FileChangedError
-	var gotDir *DirectoryChangedError
+
+	var (
+		gotFile *FileChangedError
+		gotDir  *DirectoryChangedError
+	)
+
 	require.ErrorAs(t, fileErr, &gotFile)
 	require.ErrorAs(t, dirErr, &gotDir)
 	require.ErrorIs(t, fileErr, ErrFileChanged)
@@ -468,7 +493,9 @@ func TestStoreFileCacheReturnsUncachedOnMetadataFailure(t *testing.T) {
 	setFixedTime(t, path)
 	file, err := openObject(path)
 	require.NoError(t, err)
+
 	defer func() { _ = file.Close() }()
+
 	info, err := file.Stat()
 	require.NoError(t, err)
 
@@ -501,6 +528,7 @@ func setFixedTimeAt(t *testing.T, path string, value time.Time) {
 
 func writeFixedFile(t *testing.T, root, name, content string) {
 	t.Helper()
+
 	path := filepath.Join(root, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	setFixedTime(t, path)

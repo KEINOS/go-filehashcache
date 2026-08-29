@@ -68,9 +68,11 @@ func validRecordEnvelope(data []byte) bool {
 	if len(data) != cacheRecordSize {
 		return false
 	}
+
 	if string(data[:4]) != "FHC1" || (data[4] != recordTypeFile && data[4] != recordTypeDirectory) {
 		return false
 	}
+
 	if data[5] != algorithmXXH3 || data[6] != 0 || data[7] != 0 {
 		return false
 	}

@@ -114,6 +114,7 @@ func hashPath(path string) (nodeResult, error) {
 	if err != nil {
 		return nodeResult{}, fmt.Errorf("inspect path: %w", err)
 	}
+
 	if info.Mode()&os.ModeSymlink != 0 {
 		return nodeResult{}, fmt.Errorf("%w: %s", errUnsupportedSymlink, path)
 	}
@@ -138,6 +139,7 @@ func retrySnapshot(path string, attempt snapshotAttempt, changedError error) (no
 		if err != nil {
 			return nodeResult{}, err
 		}
+
 		if stable {
 			return result, nil
 		}
@@ -158,9 +160,11 @@ func hashRegularFileAttempt(path string) (nodeResult, bool, error) { //nolint:cy
 	if err != nil {
 		return nodeResult{}, false, fmt.Errorf("inspect open file: %w", err)
 	}
+
 	if !before.Mode().IsRegular() {
 		return nodeResult{}, false, fmt.Errorf("%w: %s", errNotRegularFile, path)
 	}
+
 	if !pathIdentifiesOpenObject(path, before) {
 		return nodeResult{}, false, nil
 	}
@@ -169,10 +173,12 @@ func hashRegularFileAttempt(path string) (nodeResult, bool, error) { //nolint:cy
 	if err != nil {
 		return nodeResult{}, false, err
 	}
+
 	after, err := file.Stat()
 	if err != nil {
 		return nodeResult{}, false, fmt.Errorf("reinspect open file: %w", err)
 	}
+
 	if !sameFingerprint(before, after) || !pathIdentifiesOpenObject(path, before) {
 		return nodeResult{}, false, nil
 	}
@@ -181,6 +187,7 @@ func hashRegularFileAttempt(path string) (nodeResult, bool, error) { //nolint:cy
 	if err != nil {
 		return nodeResult{}, false, err
 	}
+
 	if cacheHit {
 		return nodeResult{hash: hash, fileCount: 1, status: StatusHit}, true, nil
 	}
@@ -204,6 +211,7 @@ func loadFileContentHash(file *os.File, path string, info os.FileInfo) (uint64, 
 	if err != nil {
 		return 0, false, fmt.Errorf("seek file: %w", err)
 	}
+
 	contentHash, err := calculateContentHash(file)
 	if err != nil {
 		return 0, false, fmt.Errorf("hash file content: %w", err)
@@ -214,6 +222,7 @@ func loadFileContentHash(file *os.File, path string, info os.FileInfo) (uint64, 
 
 func calculateContentHash(reader io.Reader) (uint64, error) {
 	hasher := xxh3.New()
+
 	_, err := io.Copy(hasher, reader)
 	if err != nil {
 		return 0, fmt.Errorf("read content: %w", err)
@@ -252,13 +261,16 @@ func storeFileCacheWith(
 		mtimeNsec:   uint32(after.ModTime().Nanosecond()), //nolint:gosec // Nanoseconds fit uint32.
 	}
 	writeErr := write(file, path, encodeRecord(newRecord), after.ModTime())
+
 	finalInfo, statErr := file.Stat()
 	if statErr != nil {
 		return nodeResult{}, false, fmt.Errorf("verify open file: %w", statErr)
 	}
+
 	if !sameFingerprint(after, finalInfo) || !pathIdentifiesOpenObject(path, before) {
 		return nodeResult{}, false, nil
 	}
+
 	if writeErr != nil {
 		return nodeResult{
 			hash: hash, fileCount: 1, status: StatusUncached,
@@ -285,15 +297,18 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 	if err != nil {
 		return nodeResult{}, false, fmt.Errorf("inspect open directory: %w", err)
 	}
+
 	if !before.IsDir() {
 		return nodeResult{}, false, fmt.Errorf("%w: %s", errNotDirectory, path)
 	}
+
 	if !pathIdentifiesOpenObject(path, before) {
 		return nodeResult{}, false, nil
 	}
 
 	recordData, readErr := readMetadata(directory, path)
 	cachedRecord, decodeErr := decodeRecord(recordData)
+
 	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		return nodeResult{}, false, fmt.Errorf("read directory: %w", err)
@@ -306,10 +321,12 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 
 	slices.Sort(children.hashes)
 	directoryHash := deriveDirectoryHash(children.fileCount, uint64(len(entries)), children.hashes)
+
 	after, err := directory.Stat()
 	if err != nil {
 		return nodeResult{}, false, fmt.Errorf("reinspect open directory: %w", err)
 	}
+
 	if !before.ModTime().Equal(after.ModTime()) ||
 		!os.SameFile(before, after) ||
 		!pathIdentifiesOpenObject(path, before) {
@@ -346,6 +363,7 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 	if statErr != nil {
 		return nodeResult{}, false, fmt.Errorf("verify open directory: %w", statErr)
 	}
+
 	if !after.ModTime().Equal(finalInfo.ModTime()) ||
 		!os.SameFile(after, finalInfo) ||
 		!pathIdentifiesOpenObject(path, before) {
@@ -377,12 +395,14 @@ func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChil
 		if entry.Type()&os.ModeSymlink != 0 {
 			return directoryChildren{}, fmt.Errorf("%w: %s", errUnsupportedSymlink, childPath)
 		}
+
 		child, err := hashPath(childPath)
 		if err != nil {
 			return directoryChildren{}, err
 		}
 
 		result.fileCount += child.fileCount
+
 		result.allHit = result.allHit && child.status == StatusHit
 		if child.cacheError != nil {
 			result.cacheErrors = append(result.cacheErrors, child.cacheError)
@@ -395,6 +415,7 @@ func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChil
 				return directoryChildren{}, err
 			}
 		}
+
 		result.hashes = append(result.hashes, childHash)
 	}
 
@@ -405,6 +426,7 @@ func deriveFileHash(contentHash uint64, info os.FileInfo, name string) (uint64, 
 	if uint64(len(name)) > math.MaxUint32 {
 		return 0, errFileNameTooLong
 	}
+
 	hasher := xxh3.New()
 	_, _ = hasher.Write([]byte("FHC-FILE-v1"))
 	writeUint64(hasher, contentHash)
@@ -421,6 +443,7 @@ func deriveDirectoryNodeHash(name string, directoryHash, fileCount uint64) (uint
 	if uint64(len(name)) > math.MaxUint32 {
 		return 0, errDirectoryNameTooLong
 	}
+
 	hasher := xxh3.New()
 	_, _ = hasher.Write([]byte("FHC-DIR-NODE-v1"))
 	writeUint32(hasher, uint32(len(name))) //nolint:gosec // The length was bounded above.
@@ -436,6 +459,7 @@ func deriveDirectoryHash(fileCount, entryCount uint64, childHashes []uint64) uin
 	_, _ = hasher.Write([]byte("FHC-DIR-v1"))
 	writeUint64(hasher, fileCount)
 	writeUint64(hasher, entryCount)
+
 	for _, hash := range childHashes {
 		writeUint64(hasher, hash)
 	}
