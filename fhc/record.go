@@ -17,14 +17,14 @@ const (
 var errInvalidCacheRecord = errors.New("invalid cache record")
 
 type cacheRecord struct {
-	recordType         byte
 	contentHash        uint64
 	size               uint64
 	mtimeSec           int64
-	mtimeNsec          uint32
 	directoryHash      uint64
 	recursiveFileCount uint64
 	directEntryCount   uint64
+	mtimeNsec          uint32
+	recordType         byte
 }
 
 func encodeRecord(record cacheRecord) []byte {

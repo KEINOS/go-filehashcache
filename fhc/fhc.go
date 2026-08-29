@@ -50,9 +50,9 @@ const (
 
 // Result contains a file or directory hash and its cache state.
 type Result struct {
+	CacheError error
 	Hash       string
 	Status     CacheStatus
-	CacheError error
 }
 
 // FileChangedError reports that a regular file changed during all attempts.
@@ -99,10 +99,10 @@ func GetFileHashWithCache(path string) (Result, error) {
 }
 
 type nodeResult struct {
+	cacheError    error
+	status        CacheStatus
 	hash          uint64
 	fileCount     uint64
-	status        CacheStatus
-	cacheError    error
 	directoryNode bool
 }
 
@@ -362,9 +362,9 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 
 type directoryChildren struct {
 	hashes      []uint64
+	cacheErrors []error
 	fileCount   uint64
 	allHit      bool
-	cacheErrors []error
 }
 
 func collectDirectoryChildren(path string, entries []os.DirEntry) (directoryChildren, error) {
