@@ -323,7 +323,9 @@ func TestGetFileHashWithCacheRejectsSymlinkWithZeroResult(t *testing.T) {
 	target := filepath.Join(dir, "target")
 	link := filepath.Join(dir, "link")
 	require.NoError(t, os.WriteFile(target, []byte("data"), 0o600))
-	if err := os.Symlink(target, link); err != nil {
+
+	err := os.Symlink(target, link)
+	if err != nil {
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 
@@ -390,11 +392,15 @@ func TestGetFileHashWithCacheCountsHardLinkEntries(t *testing.T) {
 	root := t.TempDir()
 	original := filepath.Join(root, "original.txt")
 	link := filepath.Join(root, "link.txt")
+
 	require.NoError(t, os.WriteFile(original, []byte("shared"), 0o600))
+
 	setFixedTime(t, original)
 	oneEntry, err := GetFileHashWithCache(root)
 	require.NoError(t, err)
-	if err = os.Link(original, link); err != nil {
+
+	err = os.Link(original, link)
+	if err != nil {
 		t.Skipf("hard links are unavailable: %v", err)
 	}
 

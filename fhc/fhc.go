@@ -82,7 +82,8 @@ func (err *DirectoryChangedError) Unwrap() error { return ErrDirectoryChanged }
 // The returned hash has 16 lowercase hexadecimal characters. A non-nil error
 // means that no valid hash is available and the returned Result is zero-valued.
 func GetFileHashWithCache(path string) (Result, error) {
-	if err := rejectPlatformPath(path); err != nil {
+	err := rejectPlatformPath(path)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -334,7 +335,9 @@ func hashDirectoryAttempt(path string) (nodeResult, bool, error) { //nolint:cycl
 			recursiveFileCount: children.fileCount,
 			directEntryCount:   uint64(len(entries)),
 		}
-		if writeErr := writeMetadata(directory, path, encodeRecord(newRecord), after.ModTime()); writeErr != nil {
+
+		writeErr := writeMetadata(directory, path, encodeRecord(newRecord), after.ModTime())
+		if writeErr != nil {
 			children.cacheErrors = append(children.cacheErrors, fmt.Errorf("store directory cache: %w", writeErr))
 		}
 	}
